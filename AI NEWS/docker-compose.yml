@@ -1,0 +1,83 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ainews}
+      POSTGRES_USER: ${POSTGRES_USER:-ainews}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ainews}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - redisdata:/data
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      TZ: ${TZ:-America/New_York}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ainews}:${POSTGRES_PASSWORD:-ainews}@db:5432/${POSTGRES_DB:-ainews}?schema=public
+      REDIS_URL: redis://redis:6379
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      RATE_LIMIT_WINDOW: ${RATE_LIMIT_WINDOW:-60}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-120}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:-admin}
+      BASIC_AUTH_PASS: ${BASIC_AUTH_PASS:-admin123}
+      JWT_SERVICE_SECRET: ${JWT_SERVICE_SECRET:-changeme}
+      CRON_FETCH: ${CRON_FETCH:-0 2,8,14,20 * * *}
+      CRON_RECOMPUTE: ${CRON_RECOMPUTE:-0 3,9,15,21 * * *}
+      OPENAI_BLOG_RSS: https://openai.com/blog/rss.xml
+    ports:
+      - "3000:3000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      TZ: ${TZ:-America/New_York}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ainews}:${POSTGRES_PASSWORD:-ainews}@db:5432/${POSTGRES_DB:-ainews}?schema=public
+      REDIS_URL: redis://redis:6379
+      CRON_FETCH: ${CRON_FETCH:-0 2,8,14,20 * * *}
+      CRON_RECOMPUTE: ${CRON_RECOMPUTE:-0 3,9,15,21 * * *}
+      FETCH_CONCURRENCY: ${FETCH_CONCURRENCY:-5}
+      BLOCKLIST_PHRASES: ${BLOCKLIST_PHRASES:-未经允许,禁止转载;不得转载;版权所有 未经授权不得转载;禁止转载}
+      TZ_CLUSTER: ${TZ:-America/New_York}
+      SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://web:3000}
+    command: [ "sh", "-c", "node scripts/wait-for.js && (npx prisma migrate deploy || npx prisma db push) && node dist/worker/index.js" ]
+
+volumes:
+  pgdata:
+  redisdata:

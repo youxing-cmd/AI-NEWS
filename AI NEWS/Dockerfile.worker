@@ -1,0 +1,27 @@
+# ---- Base ----
+FROM node:18-alpine AS base
+WORKDIR /app
+ENV CI=true
+
+RUN apk add --no-cache openssl
+
+# ---- Install deps ----
+FROM base AS deps
+COPY package.json ./
+RUN npm install
+
+# ---- Build worker ----
+FROM base AS build
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+# 仅构建 worker（也会触发 prisma generate）
+RUN npm run worker:build
+
+# ---- Runtime ----
+FROM base AS runtime
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=build /app ./
+
+# 由 docker-compose 的 command 启动：wait-for -> prisma -> worker
+CMD ["node", "dist/worker/index.js"]

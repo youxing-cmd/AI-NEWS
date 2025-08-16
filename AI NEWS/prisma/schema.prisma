@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ItemType {
+  NEWS
+  PAPER
+  VIDEO
+  ANNOUNCEMENT
+}
+
+model Source {
+  id          String   @id @default(cuid())
+  name        String
+  domain      String   @unique
+  rssUrl      String?
+  credibility Int      @default(60)
+  createdAt   DateTime @default(now())
+
+  items       Item[]
+}
+
+model Cluster {
+  id                    String   @id @default(cuid())
+  topic                 String
+  representativeItemId  String?
+  createdAt             DateTime @default(now())
+
+  items                 Item[]
+}
+
+model Item {
+  id               String    @id @default(cuid())
+  url              String
+  urlHash          String    @unique
+  title            String
+  summary          String?
+  content          String?
+  imageUrl         String?
+  // 归一化来源（反范式 + 关系）
+  sourceId         String?
+  source           Source?   @relation(fields: [sourceId], references: [id])
+  sourceName       String?
+  sourceDomain     String?
+  sourceCredibility Int      @default(50)
+
+  type             ItemType  @default(NEWS)
+  tags             String[]
+  publishedAt      DateTime  @db.Timestamptz(3)
+  dayKey           String    @db.VarChar(16)
+  simhash          String?
+  revision         Int       @default(1)
+  disabled         Boolean   @default(false)
+
+  // 社交信号
+  socialLikes      Int       @default(0)
+  socialComments   Int       @default(0)
+  socialViews      Int       @default(0)
+
+  // 排序得分
+  score            Float     @default(0)
+
+  // 聚类
+  clusterId        String?
+  cluster          Cluster?  @relation(fields: [clusterId], references: [id])
+
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([publishedAt])
+  @@index([score, publishedAt])
+  @@index([dayKey])
+  @@index([sourceDomain])
+}

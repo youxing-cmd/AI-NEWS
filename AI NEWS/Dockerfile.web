@@ -1,0 +1,31 @@
+# ---- Base ----
+FROM node:18-alpine AS base
+WORKDIR /app
+ENV CI=true
+
+# 必要系统依赖（openssl 供 Prisma 使用）
+RUN apk add --no-cache openssl
+
+# ---- Install deps ----
+FROM base AS deps
+COPY package.json ./
+# 无 lock 文件时使用 npm install
+RUN npm install
+
+# ---- Build ----
+FROM base AS build
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+# 生产构建（包含 Prisma generate）
+RUN npm run build
+
+# ---- Runtime ----
+FROM base AS runtime
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=build /app ./
+EXPOSE 3000
+
+# 通过 docker-compose 注入 DATABASE_URL/REDIS_URL
+# start 脚本里已包含 wait-for 与 migrate/deploy 逻辑
+CMD ["npm", "run", "start"]
